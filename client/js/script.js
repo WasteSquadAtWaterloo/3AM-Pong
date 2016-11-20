@@ -1,27 +1,62 @@
+socket = io();
+
+var state;
+var paddleH = 50;
+var players = {};
+var selfId;
+var circle;
+
+
+socket.on("joined", function(data){
+  console.log("CONNECT"); console.log(data);
+  selfId = data.id;
+
+  var x;
+  if (selfId ==0 ) x = 15;
+  else x = 780;
+  players[data.id] = new Paddle(x, data.y-paddleH/2);
+  players[data.id==0 ? 1 : 0] = new Paddle((x==15 ? 780 : 15), data.y-paddleH/2);
+  console.log(players);
+  
+});
+
+socket.on("update", function(data){
+  //console.log("update"); console.log(data.players);
+  //console.log(data.ball);
+  if (data.players[0] && data.players[0].y) players[0].y = data.players[0].y; 
+  if (data.players[1] && data.players[1].y) players[1].y = data.players[1].y; 
+  if (data.ball.x && data.ball.y && circle) {
+    circle.x = data.ball.x; 
+    circle.y = data.ball.y;
+  }
+});
+
 var animate = window.requestAnimationFrame ||
   window.webkitRequestAnimationFrame ||
   window.mozRequestAnimationFrame ||
   function(callback) { window.setTimeout(callback, 1000/60) };
 
+socket.on("ballInit", function(data){
+  console.log("BALL"); console.log(data);
+  circle = new ball(data.x, data.y);
+});
 
 var step = function() {
-	update();
+  sendInput();
 	render();
 	animate(step);
 };
 
-var update = function() {
-	player1.update();
-	ball.update(player1.paddle, player2.paddle);
-
-};
-
 var render = function() {
+  //console.log(circle);
 	context.fillStyle = "#000";
 	context.fillRect(0, 0, width, height);
-	player1.render();
-	player2.render();
-	ball.render();
+  if (players[0] && players[1]){
+  	players[0].render();
+  	players[1].render();
+  }
+	if (circle)
+    circle.render();
 };
 
 
@@ -36,18 +71,18 @@ var context = canvas.getContext('2d');
 
 
 window.onload = function() {
+  socket.emit("ready", null);
   document.body.appendChild(canvas);
   animate(step);
 };
 
 
 
-function Paddle(x, y, dy){
+function Paddle(x, y){
 	this.x = x;
 	this.y = y;
 	this.width = 5;
 	this.height = 50;
-	this.dy = 0;
 }
 
 Paddle.prototype.render = function() {
@@ -55,25 +90,10 @@ Paddle.prototype.render = function() {
   context.fillRect(this.x, this.y, this.width, this.height);
 };
 
-Paddle.prototype.move = function(x, y) {
-  this.x += x;
-  this.y += y;
-  this.dy = y;
-  if(this.y < 0) { // all the way to the left
-    this.y = 0;
-    this.dy = 0;
-  } else if (this.y + 50 > 500) { // all the way to the right
-    this.y = 500 - 50;
-    this.dy = 0;
-  }
-};
-
-function ball(x, y, dx, dy){
+function ball(x, y){
 	this.x = x;
 	this.y = y;
 	this.radius = 5;
-	this.dx = 5;
-	this.dy = 2;
 }
 
 ball.prototype.render = function() {
@@ -83,46 +103,17 @@ ball.prototype.render = function() {
   context.fill();
 };
 
-ball.prototype.update = function(paddle1, paddle2) {
-	this.x += this.dx;
-	this.y += this.dy;
-};
-
-
-function Player1() {
-	this.paddle = new Paddle(15,225,0);
-};
-
-function Player2() {
-	this.paddle = new Paddle(780,225,0);
-};	
-
-Player1.prototype.render = function() {
-  this.paddle.render();
-};
-
-Player2.prototype.render = function() {
-  this.paddle.render();
-};
-
-Player1.prototype.update = function() {
+var sendInput = function(){
   for(var key in keysDown) {
     var value = Number(key);
     if(value == 38) { // left arrow
-      this.paddle.move(0, -10);
-    } else if (value == 40) { // right arrow
-      this.paddle.move(0, 10);
-    } else {
-      this.paddle.move(0, 0);
+      socket.emit("input", {y:-5});
+    } 
+    else if (value == 40) { // right arrow
+      socket.emit("input", {y:5});
     }
   }
-};
-
-
-
-var player1 = new Player1();
-var player2 = new Player2()
-var ball = new ball(400, 200, 0, 0);
+}
 
 var keysDown = {};
 
@@ -132,3 +123,15 @@ window.addEventListener("keydown", function(event) {
 window.addEventListener("keyup", function(event) {
   delete keysDown[event.keyCode];
 });
+
+
+
+socket.on('addToConsole', function(data){
+  console.log(data);
+});
+var chatInput = document.getElementById('chat-input');
+var chatForm = document.getElementById('chat-form');
+chatForm.onsubmit = function(e){
+  e.preventDefault(); 
+  socket.emit('sendCmdToServer', chatInput.value);  
+}

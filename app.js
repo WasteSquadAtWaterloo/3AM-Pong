@@ -13,12 +13,14 @@ app.use('/client', express.static(__dirname+'/client'));
 serv.listen(4200);
 console.log('Server Initialized');
 
+var SOCKET_LIST = {};
 var numPlayers = 0;
 var players = {};
 var ball = {};
 var height = 500, width = 800;
 var paddleH =  50;
-var state = "waiting"
+var state = "waiting";
+var ballSpeed = 3;
 
 var io = require('socket.io')(serv, {});
 io.sockets.on('connection', function(socket){
@@ -26,23 +28,27 @@ io.sockets.on('connection', function(socket){
 	if (numPlayers<3){
 		socket.id = numPlayers-1;
 		console.log("player connection");
+		SOCKET_LIST[socket.id] = socket;
 
 		players[socket.id] = {
 			id: socket.id,
-			y: 50
+			y: height/2,
+			ready: 1
 		};
 
-		socket.emit("connection", players[socket.id]);
+		socket.emit("joined", players[socket.id]);
+		
 
 		socket.on('input', function(data){
-			if (players[socket.id] + data.y >= paddleH && players[socket.id] + data.y <= height-paddleH)
+			console.log(players[socket.id], data.y);
+			if (players[socket.id].y + data.y >= paddleH/2 && players[socket.id].y + data.y <= height-paddleH/2)
 				players[socket.id].y += data.y;
 		});
 
 		socket.on('disconnect', function(){
+			console.log("disconnect");
 			numPlayers -= 1;
 			delete SOCKET_LIST[socket.id];
-			console.log(socket.id.toString().substring(0,5)+" disconncted");
 		});
 
 		socket.on('sendCmdToServer', function(data){
@@ -54,14 +60,15 @@ io.sockets.on('connection', function(socket){
 	}
 
 	if (numPlayers==2){
-		state = "playing"
+		state = "playing";
 		ball = {
-			x: 50,
-			y: 50,
-			vx: 50*(Math.random()>0.5 ? 1:-1),
+			x: width/2,
+			y: height/2,
+			vx: ballSpeed*(Math.random()>0.5 ? 1:-1),
 			vy: 0,
-		}
+		};
 
+		console.log("BALLINIT");
 		socket.emit("ballInit", ball);
 	}
 });
@@ -73,8 +80,8 @@ setInterval(function(){
 			var relativeIntersectY = players[0].y - ball.y;
 			var normalizedRelativeIntersectionY = (relativeIntersectY/(paddleH/2));
 			var bounceAngle = normalizedRelativeIntersectionY * 75;
-			ball.vx = 50*Math.cos(bounceAngle);
-			ball.vy = 50*-Math.sin(bounceAngle);
+			ball.vx = ballSpeed*Math.cos(bounceAngle);
+			ball.vy = ballSpeed*-Math.sin(bounceAngle);
 		}
 		else
 			state = "done";
@@ -85,8 +92,8 @@ setInterval(function(){
 			var relativeIntersectY = players[1].y - ball.y;
 			var normalizedRelativeIntersectionY = (relativeIntersectY/(paddleH/2));
 			var bounceAngle = normalizedRelativeIntersectionY * 75;
-			ball.vx = 50*Math.cos(bounceAngle);
-			ball.vy = 50*-Math.sin(bounceAngle);
+			ball.vx = ballSpeed*Math.cos(bounceAngle);
+			ball.vy = ballSpeed*-Math.sin(bounceAngle);
 		}
 		else
 			state = "done";
@@ -99,10 +106,16 @@ setInterval(function(){
 	ball.x += ball.vx;
 	ball.y += ball.vy;
 
-	socket.emit("update", {
-		state : state,
-		p1 : players[0],
-		p2 : players[1],
-		ball : ball
-	});
+	for (var i in SOCKET_LIST){
+		socket = SOCKET_LIST[i];
+		if (players[i] && players[i].ready){
+			socket.emit("update", {
+				state : state,
+				players : players,
+				ball : ball
+			});
+		}
+	}
+
+
 }, 10);
